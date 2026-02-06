@@ -4,7 +4,7 @@ sidebarTitle: Troubleshooting
 description: Troubleshooting common issues with Salad Container Engine workloads.
 ---
 
-_Last Updated: September 9, 2025_
+_Last Updated: February 5, 2026_
 
 The following guide addresses common issues encountered when running container workloads on Salad. These solutions will
 help resolve frequent problems with downloads, container failures, networking, and access. If issues persist after
@@ -29,33 +29,85 @@ If your container group is unable to pull your container image, try the followin
 
 If you see your container group repeatedly transitioning between "Downloading" and "Allocating", this almost always
 indicates that the container is failing immediately when it starts. In this case, Salad will attempt to restart the
-container on the same machine to minimize downtime, but after repeated failures will reallocate the workload to a
-different node. To confirm this is what is happening, you can check the System Events tab in the portal, which will show
-things like when an instance started downloading, and exit codes.
+container on the same machine to minimize downtime. After repeated failures we will reallocate the workload to a
+different node. To confirm this is what is happening, you can check the System Events tab for a container group, which
+will show things like when an instance started downloading, and exit codes. Alternately you can use the log explorer to
+search for `resource.type=instance_controller`.
 
 ![System Events Tab](/container-engine/images/system-events-constant-restarting.png)
 
-- If you see repeated exit codes of `0`, this usually indicates that the container is exiting immediately after startup.
-  Some base images (like `ubuntu`) will do this by default. To keep them running, you can add a command like
-  `sleep infinity` to your container configuration. **Containers, unlike VMs, require a long-running process to stay
-  alive.**
-- If you see exit codes like `137`, this usually indicates that the container is running out of memory. Try increasing
-  the memory allocation for your container group.
-- If you see other exit codes, these are usually application-specific. Check your application logs to determine the
-  cause of the failure.
-  - If your application is exiting non-0 with no logs being captured, this usually indicates that the application is
-    failing before it can write to stdout or stderr. To diagnose, try running the container locally to see if it fails
-    immediately, and if so, why. If it works locally, but not on SaladCloud, try changing the `command` field in your
-    container group configuration to `sleep infinity`, which will keep the container up. While it is up, you can use the
-    web terminal to try manually running the application command to see why it is failing.
+## Container Exit Troubleshooting
+
+### `Exited:0`: Successful Exit
+
+An exit code of `0` indicates the container process completed successfully. This is expected behavior for many base
+images (for example, `ubuntu`) which exit immediately if no long-running command is specified. **Containers, unlike VMs,
+require a long-running process to stay alive.**
+
+**Recommended action:** If the container is intended to remain running, specify a long-running command such as:
+`sleep infinity`, or a large integer value for distributions where `sleep` does not support `infinity` (e.g. Alpine
+Linux).
+
+### `Exited:137`: Container Killed (SIGKILL)
+
+Exit code `137` indicates the container was terminated with `SIGKILL`. This typically happens when the container exceeds
+its memory limit, and is killed as OOM (out-of-memory). A 137 exit code can also be recorded if the container instance
+was explicitly terminated (for example, via the IMDS endpoint).
+
+**Recommended actions:** Verify whether a termination was requested intentionally. If not increase the memory allocated
+to the container group if the exit is unexpected.
+
+### `Exited:<other>`: Application-Specific Exit
+
+Exit codes other than `0` or `137` are typically returned by the application running inside the container. For example,
+1 is a common exit code for general application errors, and 2 is a common exit code for invalid arguments or
+configuration.
+
+**Recommended actions:** Inspect the container logs immediately preceding the exit to determine the root cause. Validate
+application configuration, input files, and environment variables.
+
+### `StartFailure:-1`: Container Failed to Start
+
+A `StartFailure` indicates that the container runtime was unable to start the container. In these cases, the container
+process itself never executed. Start failures may occasionally be caused by transient node-level issues. However,
+repeated start failures typically indicate a problem with the container image or container group configuration.
+
+#### Image and Runtime Issues
+
+- Invalid or missing container entrypoint
+- Image built for an incompatible architecture
+- GPU images with missing or incompatible CUDA libraries
+
+#### Command and Argument Errors
+
+- Incorrect command or arguments
+- Referenced files or binaries do not exist in the image
+- Incorrect assumptions about the working directory
+
+#### GPU and Resource Mismatches
+
+- Using a non-GPU container image with a GPU container group
+- Using a GPU-dependent image in a CPU-only container group
+- CUDA version incompatibility between the image and host drivers
+
+### Debugging Start Failures
+
+To systematically debug start failures:
+
+1. Verify the container image works locally with a similar runtime environment (e.g. Docker Desktop).
+2. Ensure the container image is intended for GPU workloads if deploying to a GPU container group, or vice versa.
+3. Start the container with a minimal long-running command such as `sleep infinity` and connect via the terminal in the
+   Portal or with SSH. Once connected, manually verify that the expected files, binaries, and environment variables are
+   present and correct. Also verify that the intended entrypoint or command run successfully.
 
 ## My Container Group Is Stuck Downloading / Stuck at Downloading 99%
 
-If a node has been in the "Downloading" state for a long time (more than 2 minutes per GB of image size), you may have
-landed on a node with below-average network performance. This can happen because Salad nodes often run on residential
-internet connections, where other household devices may share the bandwidth. Many of these nodes will eventually become
-healthy, but if high network performance is essential to your application, try reallocating the node. It will be placed
-on a different machine, with different network conditions.
+First, check the instances are not looping between downloading and allocating as above. However, if a single node has
+been in the "Downloading" state for a long time (more than 2 minutes per GB of image size), you may have landed on a
+node with below-average network performance. This can happen because Salad nodes often run on residential internet
+connections, where other household devices may share the bandwidth. Many of these nodes will eventually become healthy,
+but if high network performance is essential to your application, try reallocating the node. It will be placed on a
+different machine, with different network conditions.
 
 _Note that the progress bar is a conservative estimate — actual download time may vary._
 
