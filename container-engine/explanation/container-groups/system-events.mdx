@@ -36,6 +36,8 @@ These events describe phases of the
   the [priority](/container-engine/explanation/billing-pricing/priority-pricing#priority-levels) of your workload.
 - `Instance Interrupted (Node Offline)`: The node running the instance has gone offline. This is expected to occur with
   our [infrastructure](/container-engine/explanation/billing-pricing/priority-pricing#saladcloud-infrastructure).
+- `Instance Interrupted (Requested Disk Space Exceeded)` - The container went beyond the allocated disk space. Either
+  select additional disk space, or modify your workload to use less space. 
 
 ### Instance Exit System Events
 
